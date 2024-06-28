@@ -12,9 +12,8 @@
 # of the specific class 1-30) or "broadclass" (for results indicating the numeric 
 # identifier of the broad class (1-5).
 
-
-
-kg_reclass <- function(Temp, Prec, type) {
+kg_reclass <- function(Temp, Prec, type = c("broadclass", "class")) {
+  type <- match.arg(type)
   
   if (identical(dim(Temp), dim(Prec))==F){
     stop("Data matrices have not the same dimensions")
@@ -22,10 +21,6 @@ kg_reclass <- function(Temp, Prec, type) {
   
   if (any(Prec<0, na.rm = T)==T) {
     stop("Precipitation data can not include negative values") #Added na.rm
-  }
-  
-  if (type != "class" && type != "broadclass") {
-    stop("The type argument provided does not exist")
   }
   
   Temp[is.na(Temp)] <- -99 #Added
