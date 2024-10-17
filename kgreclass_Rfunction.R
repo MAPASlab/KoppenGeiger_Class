@@ -12,54 +12,61 @@
 # of the specific class 1-30) or "broadclass" (for results indicating the numeric 
 # identifier of the broad class (1-5).
 
+kg_reclass <- function(Temp, Prec, type = c("broadclass", "class")) {
+  type <- match.arg(type)
 
+  if (!identical(dim(Temp), dim(Prec))) {
+    stop("Data matrices do not have the same dimensions")
+  }
 
-kg_reclass <- function(Temp, Prec, type) {
-  
-  if (identical(dim(Temp), dim(Prec))==F){
-    stop("Data matrices have not the same dimensions")
-  }
-  
-  if (any(Prec<0, na.rm = T)==T) {
-    stop("Precipitation data can not include negative values") #Added na.rm
-  }
-  
-  if (type != "class" && type != "broadclass") {
-    stop("The type argument provided does not exist")
+  if (any(Prec < 0, na.rm = TRUE)) {
+    stop("Precipitation data cannot include negative values") #Added na.rm
   }
   
   Temp[is.na(Temp)] <- -99 #Added
   Prec[is.na(Prec)] <- -99 #Added
-  
-  T_ONDJFM <- apply(Temp[, , c(1,2,3,10,11,12)], c(1,2), mean) 
-  T_AMJJAS <- apply(Temp[, , c(4, 5, 6, 7, 8, 9)], c(1,2), mean)
+
+  temp_by_month <- lapply(seq_len(dim(Temp)[3]), function(i) Temp[, , i])
+  prec_by_month <- lapply(seq_len(dim(Prec)[3]), function(i) Prec[, , i])
+
+  T_ONDJFM <- rowMeans(Temp[, , c(1, 2, 3, 10, 11, 12)], dims = 2)
+  T_AMJJAS <- rowMeans(Temp[, , c(4, 5, 6, 7, 8, 9)], dims = 2)
   tmp <- T_AMJJAS>T_ONDJFM
-  SUM_SEL <- array(as.logical(0), dim(Temp))
+  SUM_SEL <- array(FALSE, dim(Temp))
   SUM_SEL[,, c(4, 5, 6, 7, 8, 9)] <- rep(tmp, 6)
   SUM_SEL[,, c(10, 11, 12, 1, 2, 3)] <- rep(!tmp,6)
-  rm(tmp)
-  
-  Pw <- apply(Prec*!SUM_SEL, c(1,2), sum) 
-  Ps <- apply(Prec*SUM_SEL, c(1,2), sum) 
-  
-  Pdry <- apply (Prec, c(1,2), min) 
-  
+
+  Pw <- rowSums(Prec * !SUM_SEL, dims = 2)
+  Ps <- rowSums(Prec * SUM_SEL, dims = 2)
+
+  Pdry <- do.call(pmin, prec_by_month)
+
   tmp <- SUM_SEL
-  tmp[tmp==0] = NA
-  Psdry <- apply(Prec*tmp, c(1,2), min, na.rm = TRUE) 
-  Pswet <- apply(Prec*tmp, c(1,2), max, na.rm = TRUE) 
-  
+  tmp[tmp == 0] <- NA
+  prec_masked <- Prec * tmp
+  prec_masked_by_month <- lapply(
+    seq_len(dim(prec_masked)[3]),
+    function(i) prec_masked[, , i]
+  )
+  Psdry <- do.call(pmin, c(prec_masked_by_month, na.rm = TRUE))
+  Pswet <- do.call(pmax, c(prec_masked_by_month, na.rm = TRUE))
+
   tmp <- !SUM_SEL
-  tmp[tmp==0] = NA
-  Pwdry <- apply(Prec*tmp, c(1,2), min, na.rm = TRUE) 
-  Pwwet <- apply(Prec*tmp, c(1,2), max, na.rm = TRUE) 
-  
-  MAT <- apply(Temp, c(1,2), mean)
-  MAP <- apply(Prec, c(1,2), sum) 
-  Tmon10 <- apply(Temp > 10, c(1,2), sum) 
-  Thot <- apply(Temp, c(1,2), max)
-  Tcold <- apply(Temp, c(1,2), min)
-  
+  tmp[tmp == 0] <- NA
+  prec_masked <- Prec * tmp
+  prec_masked_by_month <- lapply(
+    seq_len(dim(prec_masked)[3]),
+    function(i) prec_masked[, , i]
+  )
+  Pwdry <- do.call(pmin, c(prec_masked_by_month, na.rm = TRUE))
+  Pwwet <- do.call(pmax, c(prec_masked_by_month, na.rm = TRUE))
+
+  MAT <- rowMeans(Temp, dims = 2)
+  MAP <- rowSums(Prec, dims = 2)
+  Tmon10 <- rowSums(Temp > 10, dims = 2)
+  Thot <- do.call(pmax, temp_by_month)
+  Tcold <- do.call(pmin, temp_by_month)
+
   Pthresh <- 2*MAT+14 #where temp = -99, this is -184
   Pthresh[Pw>Ps*2.333] <- 2*MAT[Pw>Ps*2.333]       
   Pthresh[Ps>Pw*2.333] <- 2*MAT[Ps>Pw*2.333]+28 
@@ -118,26 +125,19 @@ kg_reclass <- function(Temp, Prec, type) {
   E <- Thot <= 10 & Thot > (-90) & !B    #Added & Thot > (-90)
   ET <- E & Thot>0
   EF <- E & Thot<=0 & Thot> (-90) # Added & Thot> (-90)
-  
-  
+
   if (type == "class") {
     Class <- list(Af, Am, Aw, BWh, BWk, BSh, BSk, Csa, Csb, Csc, Cwa, Cwb,
                   Cwc, Cfa, Cfb, Cfc, Dsa, Dsb, Dsc, Dsd, Dwa, Dwb, Dwc, Dwd, Dfa,
                   Dfb, Dfc, Dfd, ET, EF)
-    Class_cont <- array(0, dim(Temp[,,1]))
-    for (i in 1:30){
-      Class_cont[Class[[i]]==1] <- i
-    }
-    Class_cont[Class_cont == 0] <- NA #Added
-    return(Class_cont)
-  } 
-  if (type == "broadclass") {
-    Broadclass <- list(A, B, C, D, E)
-    BroadClass_cont <- array(0, dim(Temp[,,1]))
-    for (i in 1:5){
-      BroadClass_cont[Broadclass[[i]]==1] <- i
-    }
-    BroadClass_cont[BroadClass_cont == 0] <- NA #Added 
-    return(BroadClass_cont)
-  }   
+  } else if (type == "broadclass") {
+    Class <- list(A, B, C, D, E)
+  }
+
+  Class_cont <- array(NA_integer_, dim(Temp[, , 1]))
+  for (i in seq_along(Class)) {
+    Class_cont[Class[[i]]] <- i
+  }
+
+  Class_cont
 }
